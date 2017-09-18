@@ -51,20 +51,65 @@
 
 ;;; Code:
 
-(defcustom test-kitchen-destroy-command "chef exec kitchen destroy"
-  "The command used to destroy a kitchen.")
+(require 'cl)
 
-(defcustom test-kitchen-list-command "chef exec kitchen list"
-  "The command used to list the kitchen nodes.")
+(defgroup test-kitchen nil
+  "test-kitchen mode."
+  :group 'languages)
 
-(defcustom test-kitchen-test-command "chef exec kitchen test"
-  "The command used to run the tests.")
+(defcustom test-kitchen-use-bundler-when-possible t
+  "Use `bundle exec` for test-kitchen when it's possible"
+  :type 'boolean
+  :group 'test-kitchen)
 
-(defcustom test-kitchen-converge-command "chef exec kitchen converge"
-  "The command used for converge project.")
+(defcustom test-kitchen-use-chefdk-when-possible t
+  "Use `chef exec` for test-kitchen when it's possible"
+  :type 'boolean
+  :group 'test-kitchen)
 
-(defcustom test-kitchen-verify-command "chef exec kitchen verify"
-  "The command use to verify the kitchen.")
+(defun test-kitchen-bundler-p ()
+  (and test-kitchen-use-bundler-when-possible
+       (shell-command "which bundler")
+       (shell-command "which bundle")))
+
+(defun test-kitchen-chefdk-p ()
+  (and test-kitchen-use-chefdk-when-possible
+       (shell-command "which chef")))
+
+(defcustom test-kitchen-destroy-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen destroy")
+					      ((test-kitchen-bundler-p) "bundler exec kitchen destroy")
+					      (t "kitchen destroy"))
+  "The command used to destroy a kitchen (use it, when really want to use custom command. Not with chef of bundler)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-list-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen list")
+					   ((test-kitchen-bundler-p) "bundle exec kitchen list")
+					   (t "kitchen list"))
+  "The command used to list the kitchen nodes (use it, when really want to use custom command. Not with chef of bundler)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-test-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen test")
+					   ((test-kitchen-bundler-p) "bundle exec kitchen test")
+					   (t "kitchen test"))
+  "The command used to run the tests (use it, when really want to use custom command. Not with chef of bundler)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-converge-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen converge")
+					       ((test-kitchen-bundler-p) "bundle exec kitchen converge")
+					       (t "kitchen converge"))
+  "The command used for converge project (use it, when really want to use custom command. Not with chef of bundler)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-verify-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen verify")
+					     ((test-kitchen-bundler-p) "bundle exec kitchen verify")
+					     (t "kitchen verify"))
+  "The command use to verify the kitchen (use it, when really want to use custom command. Not with chef of bundler)."
+  :type 'string
+  :group 'test-kitchen)
 
 (defun test-kitchen-locate-root-dir ()
   "Return the full path of the directory where .kitchen.yml file was found, else nil."
