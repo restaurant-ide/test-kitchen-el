@@ -51,7 +51,7 @@
 
 ;;; Code:
 
-(require 'cl)
+(require 'cl-lib)
 
 (defgroup test-kitchen nil
   "test-kitchen mode."
@@ -62,54 +62,63 @@
   :type 'boolean
   :group 'test-kitchen)
 
-(defcustom test-kitchen-use-chefdk-when-possible t
+(defcustom test-kitchen-use-chefdk-when-possible nil
   "Use `chef exec` for test-kitchen when it's possible"
   :type 'boolean
   :group 'test-kitchen)
 
+(defcustom test-kitchen-chefdk-home-directory "/opt/chefdk"
+  "Use `chef exec` for test-kitchen when it's possible"
+  :type 'directory
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-destroy-command "kitchen destroy"
+  "The command used to destroy a kitchen (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-list-command "kitchen list"
+  "The command used to list the kitchen nodes (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-test-command "kitchen test"
+  "The command used to run the tests (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-converge-command "kitchen converge"
+  "The command used for converge project (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-verify-command "kitchen verify"
+  "The command use to verify the kitchen (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-chefdk-home-directory "/opt/chefdk"
+  "Set chefDK home directory, when using with chefDK"
+  :type 'directory
+  :group 'test-kitchen)
+
+(defun chefdk-chef-command ()
+  "Get chef command, when use chefDK."
+  (let ((chef-file-full-path (concat
+			      (file-name-as-directory berkshelf-chefdk-home-directory)
+			      (file-name-as-directory "bin")
+			      "chef")))
+    (when (file-executable-p chef-file-full-path)
+      chef-file-full-path)))
+
 (defun test-kitchen-bundler-p ()
-  (and test-kitchen-use-bundler-when-possible
+  (and berkshelf-use-bundler-when-possible
        (shell-command "which bundler")
        (shell-command "which bundle")))
 
 (defun test-kitchen-chefdk-p ()
   (and test-kitchen-use-chefdk-when-possible
-       (shell-command "which chef")))
-
-(defcustom test-kitchen-destroy-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen destroy")
-					      ((test-kitchen-bundler-p) "bundler exec kitchen destroy")
-					      (t "kitchen destroy"))
-  "The command used to destroy a kitchen (use it, when really want to use custom command. Not with chef of bundler)."
-  :type 'string
-  :group 'test-kitchen)
-
-(defcustom test-kitchen-list-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen list")
-					   ((test-kitchen-bundler-p) "bundle exec kitchen list")
-					   (t "kitchen list"))
-  "The command used to list the kitchen nodes (use it, when really want to use custom command. Not with chef of bundler)."
-  :type 'string
-  :group 'test-kitchen)
-
-(defcustom test-kitchen-test-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen test")
-					   ((test-kitchen-bundler-p) "bundle exec kitchen test")
-					   (t "kitchen test"))
-  "The command used to run the tests (use it, when really want to use custom command. Not with chef of bundler)."
-  :type 'string
-  :group 'test-kitchen)
-
-(defcustom test-kitchen-converge-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen converge")
-					       ((test-kitchen-bundler-p) "bundle exec kitchen converge")
-					       (t "kitchen converge"))
-  "The command used for converge project (use it, when really want to use custom command. Not with chef of bundler)."
-  :type 'string
-  :group 'test-kitchen)
-
-(defcustom test-kitchen-verify-command (cond ((test-kitchen-chefdk-p) "chef exec kitchen verify")
-					     ((test-kitchen-bundler-p) "bundle exec kitchen verify")
-					     (t "kitchen verify"))
-  "The command use to verify the kitchen (use it, when really want to use custom command. Not with chef of bundler)."
-  :type 'string
-  :group 'test-kitchen)
+       (chefdk-chef-command)))
 
 (defun test-kitchen-locate-root-dir ()
   "Return the full path of the directory where .kitchen.yml file was found, else nil."
@@ -139,17 +148,29 @@
   (add-hook 'compilation-filter-hook 'test-kitchen-colorize-compilation-buffer nil t))
 
 (defun test-kitchen-run (cmd)
-  (let ((root-dir (test-kitchen-locate-root-dir)))
+  (let ((root-dir (test-kitchen-locate-root-dir))
+	(test-kitchen-full-command
+	 (cond ((test-kitchen-chefdk-p)
+		(concat (chefdk-chef-command) " exec " cmd))
+	       ((berkshelf-bundler-p)
+		(concat "bundle exec " cmd))
+	       (t cmd))))
     (if root-dir
         (let ((default-directory root-dir))
-          (compile cmd 'test-kitchen-compilation-mode))
+          (compile test-kitchen-full-command 'test-kitchen-compilation-mode))
       (error "Couldn't locate .kitchen.yml!"))))
 
 (defun test-kitchen-run-to-string (cmd)
-  (let ((root-dir (test-kitchen-locate-root-dir)))
+  (let ((root-dir (test-kitchen-locate-root-dir))
+	(test-kitchen-full-command
+	 (cond ((test-kitchen-chefdk-p)
+		(concat (chefdk-chef-command) " exec " cmd))
+	       ((berkshelf-bundler-p)
+		(concat "bundle exec " cmd))
+	       (t cmd))))
     (if root-dir
         (let ((default-directory root-dir))
-          (shell-command-to-string cmd))
+          (shell-command-to-string test-kitchen-full-command))
       (error "Couldn't locate .kitchen.yml!"))))
 
 ;;;###autoload
