@@ -53,6 +53,11 @@
 
 (require 'cl-lib)
 
+(defvar test-kitchen-list-cache (make-hash-table :test 'equal)
+  "Use it as cache for kitchen-list in format:
+path/to/.kitchen.yml => '("cache" timestamp-high-sec timestamp-low-sec timestamp-microseconds)
+")
+
 (defgroup test-kitchen nil
   "test-kitchen mode."
   :group 'languages)
@@ -188,19 +193,46 @@
   (test-kitchen-run test-kitchen-destroy-command))
 
 (defun test-kitchen-list-update-cache ()
-  (let ((kitchen-root-dir (test-kitchen-locate-root-dir))
-	(test-kitchen-full-command
-	 (test-kitchen-get-full-command test-kitchen-list-command)))
-    (let ((default-directory kitchen-root-dir))
-      (shell-command-to-string
-       (concat "DIR=$(echo " kitchen-root-dir " | sed \'s|/|_|g\'); [[ ! -f /tmp/${DIR}_kitchen.list.yml || .kitchen.yml -nt /tmp/${DIR}_kitchen.list.yml || .kitchen.local.yml -nt /tmp/${DIR}_kitchen.list.yml ]] && " test-kitchen-full-command " -b >/tmp/${DIR}_kitchen.list.yml 2>/dev/null")))))
+  (let* ((kitchen-root-dir (test-kitchen-locate-root-dir))
+	 (default-directory kitchen-root-dir)
+	 (test-kitchen-full-command
+	  (test-kitchen-get-full-command test-kitchen-list-command))
+	 (kitchen-yml-path (concat (file-name-as-directory kitchen-root-dir) ".kitchen.yml"))
+	 (kitchen-yml-cache (gethash kitchen-yml-path test-kitchen-list-cache))
+	 (kitchen-yml-mod-time (when
+				   (file-exists-p kitchen-yml-path)
+				 (nth 5 (file-attributes kitchen-yml-path))))
+	 ;;
+	 (cache-expired-p (or
+			   ;; check if cache exists
+			   (null kitchen-yml-cache)
+			   ;; check if cache timestamp earlier, than .kitchen.yml modification time
+			   (< (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			   (and
+			    (= (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			    (< (nth 2 kitchen-yml-cache) (nth 1 kitchen-yml-mod-time)))
+			   (and
+			    (= (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			    (= (nth 2 kitchen-yml-cache) (nth 1 kitchen-yml-mod-time))
+			    (< (nth 3 kitchen-yml-cache) (nth 2 kitchen-yml-mod-time)))))
+	 (current-time-stamp (current-time)))
+    ;;
+    (when cache-expired-p
+      (setf
+       (gethash kitchen-yml-path test-kitchen-list-cache)
+       (list
+	(test-kitchen-run-to-string (concat test-kitchen-list-command " -b 2>/dev/null"))
+	(nth 0 current-time-stamp)
+	(nth 1 current-time-stamp)
+	(nth 2 current-time-stamp))))))
 
 ;;;###autoload
 (defun test-kitchen-list-bare ()
   "Run chef exec kitchen list in a different buffer."
   (test-kitchen-list-update-cache)
-  (let ((kitchen-root-dir (test-kitchen-locate-root-dir)))
-    (shell-command-to-string (concat "DIR=$(echo " kitchen-root-dir " | sed \'s|/|_|g\'); cat /tmp/${DIR}_kitchen.list.yml"))))
+  (let* ((kitchen-root-dir (test-kitchen-locate-root-dir))
+	 (kitchen-yml-path (concat (file-name-as-directory kitchen-root-dir) ".kitchen.yml")))
+    (car (gethash kitchen-yml-path test-kitchen-list-cache))))
 
 ;;;###autoload
 (defun test-kitchen-list ()
