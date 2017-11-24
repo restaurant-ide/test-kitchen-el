@@ -105,14 +105,14 @@
 (defun chefdk-chef-command ()
   "Get chef command, when use chefDK."
   (let ((chef-file-full-path (concat
-			      (file-name-as-directory berkshelf-chefdk-home-directory)
+			      (file-name-as-directory test-kitchen-chefdk-home-directory)
 			      (file-name-as-directory "bin")
 			      "chef")))
     (when (file-executable-p chef-file-full-path)
       chef-file-full-path)))
 
 (defun test-kitchen-bundler-p ()
-  (and berkshelf-use-bundler-when-possible
+  (and test-kitchen-use-bundler-when-possible
        (shell-command "which bundler")
        (shell-command "which bundle")))
 
@@ -149,14 +149,18 @@
   "Compilation mode for RSpec output."
   (add-hook 'compilation-filter-hook 'test-kitchen-colorize-compilation-buffer nil t))
 
+(defun test-kitchen-get-full-command (cmd)
+  "Get full command of test-kitchen. Adding prefix for chefDK, bundle etc"
+  (cond ((test-kitchen-chefdk-p)
+	 (concat (chefdk-chef-command) " exec " cmd))
+	((test-kitchen-bundler-p)
+	 (concat "bundle exec " cmd))
+	(t cmd)))
+
 (defun test-kitchen-run (cmd)
   (let ((root-dir (test-kitchen-locate-root-dir))
 	(test-kitchen-full-command
-	 (cond ((test-kitchen-chefdk-p)
-		(concat (chefdk-chef-command) " exec " cmd))
-	       ((berkshelf-bundler-p)
-		(concat "bundle exec " cmd))
-	       (t cmd))))
+	 (test-kitchen-get-full-command cmd)))
     (if root-dir
         (let ((default-directory root-dir))
           (compile test-kitchen-full-command 'test-kitchen-compilation-mode))
@@ -165,11 +169,7 @@
 (defun test-kitchen-run-to-string (cmd)
   (let ((root-dir (test-kitchen-locate-root-dir))
 	(test-kitchen-full-command
-	 (cond ((test-kitchen-chefdk-p)
-		(concat (chefdk-chef-command) " exec " cmd))
-	       ((berkshelf-bundler-p)
-		(concat "bundle exec " cmd))
-	       (t cmd))))
+	 (test-kitchen-get-full-command cmd)))
     (if root-dir
         (let ((default-directory root-dir))
           (shell-command-to-string test-kitchen-full-command))
@@ -190,11 +190,7 @@
 (defun test-kitchen-list-update-cache ()
   (let ((kitchen-root-dir (test-kitchen-locate-root-dir))
 	(test-kitchen-full-command
-	 (cond ((test-kitchen-chefdk-p)
-		(concat (chefdk-chef-command) " exec " test-kitchen-list-command))
-	       ((berkshelf-bundler-p)
-		(concat "bundle exec " test-kitchen-list-command))
-	       (t test-kitchen-list-command))))
+	 (test-kitchen-get-full-command test-kitchen-list-command)))
     (let ((default-directory kitchen-root-dir))
       (shell-command-to-string
        (concat "DIR=$(echo " kitchen-root-dir " | sed \'s|/|_|g\'); [[ ! -f /tmp/${DIR}_kitchen.list.yml || .kitchen.yml -nt /tmp/${DIR}_kitchen.list.yml || .kitchen.local.yml -nt /tmp/${DIR}_kitchen.list.yml ]] && " test-kitchen-full-command " -b >/tmp/${DIR}_kitchen.list.yml 2>/dev/null")))))
