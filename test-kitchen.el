@@ -122,9 +122,11 @@
 
 (defun test-kitchen-locate-root-dir ()
   "Return the full path of the directory where .kitchen.yml file was found, else nil."
-  (locate-dominating-file (file-name-as-directory
-                           (file-name-directory buffer-file-name))
-                          ".kitchen.yml"))
+  (or
+   (locate-dominating-file (file-name-as-directory
+			    (file-name-directory buffer-file-name))
+			   ".kitchen.yml")
+   (error "Can not locate file .kitchen.yml")))
 
 ;;; test kitchen is very likes colors, so colorize compilation buffer
 (require 'ansi-color)
@@ -186,14 +188,23 @@
   (test-kitchen-run test-kitchen-destroy-command))
 
 (defun test-kitchen-list-update-cache ()
-  (test-kitchen-run-to-string
-   (concat "DIR=$(echo $PWD | sed \'s/\\\//_/g\'); [[ .kitchen.yml -nt /tmp/${DIR}_kitchen.list.yml || .kitchen.local.yml -nt /tmp/${DIR}_kitchen.list.yml ]] && " test-kitchen-list-command " -b >/tmp/${DIR}_kitchen.list.yml 2>/dev/null")))
+  (let ((kitchen-root-dir (test-kitchen-locate-root-dir))
+	(test-kitchen-full-command
+	 (cond ((test-kitchen-chefdk-p)
+		(concat (chefdk-chef-command) " exec " test-kitchen-list-command))
+	       ((berkshelf-bundler-p)
+		(concat "bundle exec " test-kitchen-list-command))
+	       (t test-kitchen-list-command))))
+    (let ((default-directory kitchen-root-dir))
+      (shell-command-to-string
+       (concat "DIR=$(echo " kitchen-root-dir " | sed \'s|/|_|g\'); [[ ! -f /tmp/${DIR}_kitchen.list.yml || .kitchen.yml -nt /tmp/${DIR}_kitchen.list.yml || .kitchen.local.yml -nt /tmp/${DIR}_kitchen.list.yml ]] && " test-kitchen-full-command " -b >/tmp/${DIR}_kitchen.list.yml 2>/dev/null")))))
 
 ;;;###autoload
 (defun test-kitchen-list-bare ()
   "Run chef exec kitchen list in a different buffer."
   (test-kitchen-list-update-cache)
-  (test-kitchen-run-to-string "DIR=$(echo $PWD | sed \'s/\\\//_/g\'); cat /tmp/${DIR}_kitchen.list.yml"))
+  (let ((kitchen-root-dir (test-kitchen-locate-root-dir)))
+    (shell-command-to-string (concat "DIR=$(echo " kitchen-root-dir " | sed \'s|/|_|g\'); cat /tmp/${DIR}_kitchen.list.yml"))))
 
 ;;;###autoload
 (defun test-kitchen-list ()
