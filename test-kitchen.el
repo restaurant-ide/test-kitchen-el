@@ -55,25 +55,24 @@
 
 (defvar test-kitchen-list-cache (make-hash-table :test 'equal)
   "Use it as cache for kitchen-list in format:
-path/to/.kitchen.yml => '("cache" timestamp-high-sec timestamp-low-sec timestamp-microseconds)
-")
+path/to/.kitchen.yml => '(cache timestamp-high-sec timestamp-low-sec timestamp-microseconds).")
 
 (defgroup test-kitchen nil
   "test-kitchen mode."
   :group 'languages)
 
 (defcustom test-kitchen-use-bundler-when-possible t
-  "Use `bundle exec` for test-kitchen when it's possible"
+  "Use `bundle exec` for test-kitchen when it's possible."
   :type 'boolean
   :group 'test-kitchen)
 
 (defcustom test-kitchen-use-chefdk-when-possible nil
-  "Use `chef exec` for test-kitchen when it's possible"
+  "Use `chef exec` for test-kitchen when it's possible."
   :type 'boolean
   :group 'test-kitchen)
 
 (defcustom test-kitchen-chefdk-home-directory "/opt/chefdk"
-  "Use `chef exec` for test-kitchen when it's possible"
+  "Use `chef exec` for test-kitchen when it's possible."
   :type 'directory
   :group 'test-kitchen)
 
