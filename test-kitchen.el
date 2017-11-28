@@ -220,7 +220,7 @@ path/to/.kitchen.yml => '(cache timestamp-high-sec timestamp-low-sec timestamp-m
       (setf
        (gethash kitchen-yml-path test-kitchen-list-cache)
        (list
-	(test-kitchen-run-to-string (concat test-kitchen-list-command " -b 2>/dev/null"))
+	(test-kitchen-run-to-string (concat test-kitchen-full-command " -b 2>/dev/null"))
 	(nth 0 current-time-stamp)
 	(nth 1 current-time-stamp)
 	(nth 2 current-time-stamp))))))
