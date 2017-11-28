@@ -51,26 +51,86 @@
 
 ;;; Code:
 
-(defcustom test-kitchen-destroy-command "chef exec kitchen destroy"
-  "The command used to destroy a kitchen.")
+(require 'cl-lib)
 
-(defcustom test-kitchen-list-command "chef exec kitchen list"
-  "The command used to list the kitchen nodes.")
+(defvar test-kitchen-list-cache (make-hash-table :test 'equal)
+  "Use it as cache for kitchen-list in format:
+path/to/.kitchen.yml => '(cache timestamp-high-sec timestamp-low-sec timestamp-microseconds).")
 
-(defcustom test-kitchen-test-command "chef exec kitchen test"
-  "The command used to run the tests.")
+(defgroup test-kitchen nil
+  "test-kitchen mode."
+  :group 'languages)
 
-(defcustom test-kitchen-converge-command "chef exec kitchen converge"
-  "The command used for converge project.")
+(defcustom test-kitchen-use-bundler-when-possible t
+  "Use `bundle exec` for test-kitchen when it's possible."
+  :type 'boolean
+  :group 'test-kitchen)
 
-(defcustom test-kitchen-verify-command "chef exec kitchen verify"
-  "The command use to verify the kitchen.")
+(defcustom test-kitchen-use-chefdk-when-possible nil
+  "Use `chef exec` for test-kitchen when it's possible."
+  :type 'boolean
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-chefdk-home-directory "/opt/chefdk"
+  "Use `chef exec` for test-kitchen when it's possible."
+  :type 'directory
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-destroy-command "kitchen destroy"
+  "The command used to destroy a kitchen (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-list-command "kitchen list"
+  "The command used to list the kitchen nodes (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-test-command "kitchen test"
+  "The command used to run the tests (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-converge-command "kitchen converge"
+  "The command used for converge project (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-verify-command "kitchen verify"
+  "The command use to verify the kitchen (combined with chefdk chef, of bundler, if possible)."
+  :type 'string
+  :group 'test-kitchen)
+
+(defcustom test-kitchen-chefdk-home-directory "/opt/chefdk"
+  "Set chefDK home directory, when using with chefDK"
+  :type 'directory
+  :group 'test-kitchen)
+
+(defun chefdk-chef-command ()
+  "Get chef command, when use chefDK."
+  (let ((chef-file-full-path (concat
+			      (file-name-as-directory test-kitchen-chefdk-home-directory)
+			      (file-name-as-directory "bin")
+			      "chef")))
+    (when (file-executable-p chef-file-full-path)
+      chef-file-full-path)))
+
+(defun test-kitchen-bundler-p ()
+  (and test-kitchen-use-bundler-when-possible
+       (shell-command "which bundler")
+       (shell-command "which bundle")))
+
+(defun test-kitchen-chefdk-p ()
+  (and test-kitchen-use-chefdk-when-possible
+       (chefdk-chef-command)))
 
 (defun test-kitchen-locate-root-dir ()
   "Return the full path of the directory where .kitchen.yml file was found, else nil."
-  (locate-dominating-file (file-name-as-directory
-                           (file-name-directory buffer-file-name))
-                          ".kitchen.yml"))
+  (or
+   (locate-dominating-file (file-name-as-directory
+			    (file-name-directory buffer-file-name))
+			   ".kitchen.yml")
+   (error "Can not locate file .kitchen.yml")))
 
 ;;; test kitchen is very likes colors, so colorize compilation buffer
 (require 'ansi-color)
@@ -93,18 +153,30 @@
   "Compilation mode for RSpec output."
   (add-hook 'compilation-filter-hook 'test-kitchen-colorize-compilation-buffer nil t))
 
+(defun test-kitchen-get-full-command (cmd)
+  "Get full command of test-kitchen. Adding prefix for chefDK, bundle etc"
+  (cond ((test-kitchen-chefdk-p)
+	 (concat (chefdk-chef-command) " exec " cmd))
+	((test-kitchen-bundler-p)
+	 (concat "bundle exec " cmd))
+	(t cmd)))
+
 (defun test-kitchen-run (cmd)
-  (let ((root-dir (test-kitchen-locate-root-dir)))
+  (let ((root-dir (test-kitchen-locate-root-dir))
+	(test-kitchen-full-command
+	 (test-kitchen-get-full-command cmd)))
     (if root-dir
         (let ((default-directory root-dir))
-          (compile cmd 'test-kitchen-compilation-mode))
+          (compile test-kitchen-full-command 'test-kitchen-compilation-mode))
       (error "Couldn't locate .kitchen.yml!"))))
 
 (defun test-kitchen-run-to-string (cmd)
-  (let ((root-dir (test-kitchen-locate-root-dir)))
+  (let ((root-dir (test-kitchen-locate-root-dir))
+	(test-kitchen-full-command
+	 (test-kitchen-get-full-command cmd)))
     (if root-dir
         (let ((default-directory root-dir))
-          (shell-command-to-string cmd))
+          (shell-command-to-string test-kitchen-full-command))
       (error "Couldn't locate .kitchen.yml!"))))
 
 ;;;###autoload
@@ -120,14 +192,46 @@
   (test-kitchen-run test-kitchen-destroy-command))
 
 (defun test-kitchen-list-update-cache ()
-  (test-kitchen-run-to-string
-   (concat "DIR=$(echo $PWD | sed \'s/\\\//_/g\'); [[ .kitchen.yml -nt /tmp/${DIR}_kitchen.list.yml || .kitchen.local.yml -nt /tmp/${DIR}_kitchen.list.yml ]] && " test-kitchen-list-command " -b >/tmp/${DIR}_kitchen.list.yml 2>/dev/null")))
+  (let* ((kitchen-root-dir (test-kitchen-locate-root-dir))
+	 (default-directory kitchen-root-dir)
+	 (test-kitchen-full-command
+	  (test-kitchen-get-full-command test-kitchen-list-command))
+	 (kitchen-yml-path (concat (file-name-as-directory kitchen-root-dir) ".kitchen.yml"))
+	 (kitchen-yml-cache (gethash kitchen-yml-path test-kitchen-list-cache))
+	 (kitchen-yml-mod-time (when
+				   (file-exists-p kitchen-yml-path)
+				 (nth 5 (file-attributes kitchen-yml-path))))
+	 ;;
+	 (cache-expired-p (or
+			   ;; check if cache exists
+			   (null kitchen-yml-cache)
+			   ;; check if cache timestamp earlier, than .kitchen.yml modification time
+			   (< (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			   (and
+			    (= (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			    (< (nth 2 kitchen-yml-cache) (nth 1 kitchen-yml-mod-time)))
+			   (and
+			    (= (nth 1 kitchen-yml-cache) (nth 0 kitchen-yml-mod-time))
+			    (= (nth 2 kitchen-yml-cache) (nth 1 kitchen-yml-mod-time))
+			    (< (nth 3 kitchen-yml-cache) (nth 2 kitchen-yml-mod-time)))))
+	 (current-time-stamp (current-time)))
+    ;;
+    (when cache-expired-p
+      (setf
+       (gethash kitchen-yml-path test-kitchen-list-cache)
+       (list
+	(test-kitchen-run-to-string (concat test-kitchen-list-command " -b 2>/dev/null"))
+	(nth 0 current-time-stamp)
+	(nth 1 current-time-stamp)
+	(nth 2 current-time-stamp))))))
 
 ;;;###autoload
 (defun test-kitchen-list-bare ()
   "Run chef exec kitchen list in a different buffer."
   (test-kitchen-list-update-cache)
-  (test-kitchen-run-to-string "DIR=$(echo $PWD | sed \'s/\\\//_/g\'); cat /tmp/${DIR}_kitchen.list.yml"))
+  (let* ((kitchen-root-dir (test-kitchen-locate-root-dir))
+	 (kitchen-yml-path (concat (file-name-as-directory kitchen-root-dir) ".kitchen.yml")))
+    (car (gethash kitchen-yml-path test-kitchen-list-cache))))
 
 ;;;###autoload
 (defun test-kitchen-list ()
